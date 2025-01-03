@@ -52,23 +52,11 @@ const GitHubPRAnalyzer = () => {
       const analysisData = await response.json();
       console.log('Raw analysis data:', analysisData);
 
-      // No need to parse - just use the data directly
+      // Set the analysis data directly - no need for additional parsing
       setAnalysis(analysisData);
       
-      // Set parsed content for files analyzed section
-      setParsedContent({
-        filesAnalyzed: [], // You might want to add this from the backend response
-        scores: Object.fromEntries(
-          (analysisData.criteriaScores || []).map(item => [item.criterion, item.score])
-        ),
-        justifications: Object.fromEntries(
-          (analysisData.criteriaScores || []).map(item => [item.criterion, item.justification])
-        ),
-        recommendations: Object.fromEntries(
-          (analysisData.criteriaScores || []).map(item => [item.criterion, item.recommendations])
-        ),
-        overallScore: analysisData.score
-      });
+      // Remove this section as it's redundant - the data is already properly structured
+      // setParsedContent({...});
 
     } catch (err) {
       setError(err.message);
@@ -76,17 +64,6 @@ const GitHubPRAnalyzer = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const parseClaudeResponse = (text) => {
-    const sections = text.split('\n\n');
-    return sections.reduce((acc, section) => {
-      const [title, ...content] = section.split('\n');
-      if (title && content.length > 0) {
-        acc[title.replace(':', '')] = content.join('\n');
-      }
-      return acc;
-    }, {});
   };
 
   const handleCopyAnalysis = () => {
@@ -229,8 +206,15 @@ const GitHubPRAnalyzer = () => {
             <div className="bg-white rounded-lg shadow-md p-6 mb-4">
               <h2 className="text-xl font-bold mb-4">Overall Score</h2>
               <div className="text-2xl">
-                {analysis.score !== undefined ? 
-                  `${analysis.score}/${rubric.reduce((sum, item) => sum + item.weight, 0)}` : 
+                {analysis?.criteriaScores ? 
+                  `${analysis.criteriaScores.reduce((acc, criteria) => {
+                    // For Code Completion criterion, use the function analysis percentage
+                    if (criteria.criterion === 'Code Completion') {
+                      return acc + Math.round((analysis.functionAnalysis.completionPercentage / 100) * criteria.weight);
+                    }
+                    // For all other criteria, use their original scores
+                    return acc + criteria.score;
+                  }, 0)}/${rubric.reduce((sum, item) => sum + item.weight, 0)}` : 
                   'Score pending'}
               </div>
             </div>
@@ -242,11 +226,21 @@ const GitHubPRAnalyzer = () => {
                   <div className="flex justify-between items-start mb-4">
                     <h3 className="text-xl font-semibold">{criteria.criterion}</h3>
                     <div className="text-2xl font-bold">
-                      {criteria.score}/{criteria.weight}
+                      {criteria.criterion === 'Code Completion' ? 
+                        `${Math.round((analysis.functionAnalysis.completionPercentage / 100) * criteria.weight)}/${criteria.weight}` :
+                        `${criteria.score}/${criteria.weight}`
+                      }
                     </div>
                   </div>
                   
-                  {/* Justification */}
+                  {criteria.criterion === 'Code Completion' && (
+                    <div className="mb-4 text-sm text-gray-600">
+                      <p>Total Functions: {analysis.functionAnalysis.totalFunctions}</p>
+                      <p>Implemented Functions: {analysis.functionAnalysis.implementedFunctions}</p>
+                      <p>Completion Rate: {analysis.functionAnalysis.completionPercentage.toFixed(1)}%</p>
+                    </div>
+                  )}
+                  
                   {criteria.justification && (
                     <div className="mb-4">
                       <h4 className="text-lg font-semibold mb-2">Justification</h4>
@@ -256,7 +250,6 @@ const GitHubPRAnalyzer = () => {
                     </div>
                   )}
                   
-                  {/* Recommendations */}
                   {criteria.recommendations && criteria.recommendations.length > 0 && (
                     <div>
                       <h4 className="text-lg font-semibold mb-2">Recommendations</h4>
@@ -294,18 +287,15 @@ const GitHubPRAnalyzer = () => {
               </button>
             </div>
 
-            {/* Optional: Raw Claude Response (you might want to hide this or put it behind a toggle) */}
+            {/* Optional: Raw Claude Response */}
             {analysis.claudeResponse && (
               <div className="mt-6">
                 <details className="bg-white p-4 rounded border">
                   <summary className="font-semibold cursor-pointer">Raw Analysis Details</summary>
                   <div className="mt-4 space-y-4">
-                    {Object.entries(parseClaudeResponse(analysis.claudeResponse.content)).map(([title, content]) => (
-                      <div key={title}>
-                        <h3 className="font-semibold mb-2">{title}</h3>
-                        <div className="whitespace-pre-wrap text-gray-700">{content}</div>
-                      </div>
-                    ))}
+                    <div className="whitespace-pre-wrap text-gray-700">
+                      {analysis.claudeResponse.content}
+                    </div>
                   </div>
                 </details>
               </div>
