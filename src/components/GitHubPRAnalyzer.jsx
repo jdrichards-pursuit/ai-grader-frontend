@@ -12,6 +12,20 @@ const GitHubPRAnalyzer = () => {
   const [error, setError] = useState(null);
   const [parsedContent, setParsedContent] = useState(null);
   const [studentName, setStudentName] = useState('');
+  const [repoUrl, setRepoUrl] = useState('');
+  const [filePath, setFilePath] = useState('');
+  const [fileAnalysis, setFileAnalysis] = useState(null);
+
+  const extractRepoInfo = (prUrl) => {
+    const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+    if (match) {
+      return {
+        owner: match[1],
+        repo: match[2]
+      };
+    }
+    return null;
+  };
 
   const addRubricItem = () => {
     setRubric([...rubric, { criterion: '', weight: 0, description: '' }]);
@@ -66,22 +80,18 @@ const GitHubPRAnalyzer = () => {
     }
   };
 
-  const handleCopyAnalysis = () => {
-    if (!analysis?.claudeResponse?.content) return;
+  const handleCopyAnalysis = (data = analysis) => {
+    if (!data?.claudeResponse?.content) return;
 
     // Format Claude's response content
-    const formattedReport = analysis.claudeResponse.content
-      // Split into sections and clean up
+    const formattedReport = data.claudeResponse.content
       .split('\n\n')
       .map(section => section.trim())
-      // Remove empty sections
       .filter(section => section)
-      // Format each section
       .map(section => {
-        // Check if it's a criteria section with score
         if (section.match(/.*?\(\d+%\)/)) {
           return section
-            .replace(/\n/g, '\n  ') // Indent content under headers
+            .replace(/\n/g, '\n  ')
             .replace('Justification:', '\nJustification:')
             .replace('Recommendations:', '\nRecommendations:');
         }
@@ -92,6 +102,80 @@ const GitHubPRAnalyzer = () => {
     navigator.clipboard.writeText(formattedReport)
       .then(() => alert('Analysis copied to clipboard!'))
       .catch(() => alert('Failed to copy analysis'));
+  };
+
+  const analyzeFile = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3003';
+      const response = await fetch(`${API_URL}/api/analysis/analyze-file`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          repoUrl,
+          filePath,
+          rubric
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to analyze file');
+      }
+
+      const analysisData = await response.json();
+      setFileAnalysis(analysisData);
+    } catch (err) {
+      setError(err.message);
+      console.error('File analysis error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const analyzePRFile = async () => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3003';
+      console.log('Making request to:', `${API_URL}/api/analysis/analyze-pr-file`);
+      console.log('Request body:', {
+        prUrl,
+        filePath,
+        rubric
+      });
+
+      const response = await fetch(`${API_URL}/api/analysis/analyze-pr-file`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prUrl,
+          filePath,
+          rubric
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to analyze PR file');
+      }
+
+      const analysisData = await response.json();
+      console.log('Response from backend:', analysisData);
+      setFileAnalysis(analysisData);
+    } catch (err) {
+      setError(err.message);
+      console.error('PR file analysis error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -170,6 +254,23 @@ const GitHubPRAnalyzer = () => {
           </button>
         </div>
 
+        <div className="space-y-4 mt-4">
+          <input
+            type="text"
+            value={filePath}
+            onChange={(e) => setFilePath(e.target.value)}
+            placeholder="Enter file path to analyze from PR (optional)"
+            className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            onClick={analyzePRFile}
+            disabled={loading || !prUrl || !filePath}
+            className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-400 transition-colors"
+          >
+            {loading ? 'Analyzing...' : 'Analyze PR File'}
+          </button>
+        </div>
+
         {error && (
           <div className="p-4 bg-red-100 text-red-700 rounded flex items-center gap-2">
             <span>⚠️</span>
@@ -184,120 +285,231 @@ const GitHubPRAnalyzer = () => {
           </div>
         )}
 
-        {analysis && (
+        {(analysis || fileAnalysis) && (
           <div className="space-y-6">
-            {/* Repository Stats */}
-            <div className="grid grid-cols-3 gap-4 mb-6">
-              <div className="p-4 bg-gray-100 rounded">
-                <div className="text-lg font-semibold">Modified Files</div>
-                <div className="text-2xl">{analysis.totalFiles}</div>
-              </div>
-              <div className="p-4 bg-gray-100 rounded">
-                <div className="text-lg font-semibold">Added Lines</div>
-                <div className="text-2xl text-green-600">+{analysis.additions}</div>
-              </div>
-              <div className="p-4 bg-gray-100 rounded">
-                <div className="text-lg font-semibold">Removed Lines</div>
-                <div className="text-2xl text-red-600">-{analysis.deletions}</div>
-              </div>
-            </div>
-
-            {/* Overall Score */}
-            <div className="bg-white rounded-lg shadow-md p-6 mb-4">
-              <h2 className="text-xl font-bold mb-4">Overall Score</h2>
-              <div className="text-2xl">
-                {analysis?.criteriaScores ? 
-                  `${analysis.criteriaScores.reduce((acc, criteria) => {
-                    // For Code Completion criterion, use the function analysis percentage
-                    if (criteria.criterion === 'Code Completion') {
-                      return acc + Math.round((analysis.functionAnalysis.completionPercentage / 100) * criteria.weight);
-                    }
-                    // For all other criteria, use their original scores
-                    return acc + criteria.score;
-                  }, 0)}/${rubric.reduce((sum, item) => sum + item.weight, 0)}` : 
-                  'Score pending'}
-              </div>
-            </div>
-
-            {/* Criteria Analysis Cards */}
-            <div className="grid grid-cols-1 gap-6">
-              {analysis.criteriaScores?.map((criteria, index) => (
-                <div key={index} className="bg-white p-6 rounded-lg shadow-md">
-                  <div className="flex justify-between items-start mb-4">
-                    <h3 className="text-xl font-semibold">{criteria.criterion}</h3>
-                    <div className="text-2xl font-bold">
-                      {criteria.criterion === 'Code Completion' ? 
-                        `${Math.round((analysis.functionAnalysis.completionPercentage / 100) * criteria.weight)}/${criteria.weight}` :
-                        `${criteria.score}/${criteria.weight}`
-                      }
-                    </div>
-                  </div>
-                  
-                  {criteria.criterion === 'Code Completion' && (
-                    <div className="mb-4 text-sm text-gray-600">
-                      <p>Total Functions: {analysis.functionAnalysis.totalFunctions}</p>
-                      <p>Implemented Functions: {analysis.functionAnalysis.implementedFunctions}</p>
-                      <p>Completion Rate: {analysis.functionAnalysis.completionPercentage.toFixed(1)}%</p>
-                    </div>
-                  )}
-                  
-                  {criteria.justification && (
-                    <div className="mb-4">
-                      <h4 className="text-lg font-semibold mb-2">Justification</h4>
-                      <p className="text-gray-700 whitespace-pre-wrap">
-                        {criteria.justification}
-                      </p>
-                    </div>
-                  )}
-                  
-                  {criteria.recommendations && criteria.recommendations.length > 0 && (
-                    <div>
-                      <h4 className="text-lg font-semibold mb-2">Recommendations</h4>
-                      <ul className="list-disc pl-5 space-y-1">
-                        {criteria.recommendations.map((rec, idx) => (
-                          <li key={idx} className="text-gray-700">{rec}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Overall Analysis */}
-            {analysis.claudeResponse?.overallAnalysis && (
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-semibold mb-4">Overall Analysis</h3>
-                <p className="text-gray-700 whitespace-pre-wrap">
-                  {analysis.claudeResponse.overallAnalysis}
+            <div className="border-b pb-4">
+              <h2 className="text-2xl font-bold">
+                {studentName ? `${studentName}'s Results` : 'Analysis Results'}
+              </h2>
+              {prUrl && extractRepoInfo(prUrl) && (
+                <p className="text-gray-600 mt-1">
+                  Repository: {extractRepoInfo(prUrl).owner}/{extractRepoInfo(prUrl).repo}
                 </p>
+              )}
+            </div>
+
+            {analysis && !fileAnalysis && (
+              <div className="space-y-6">
+                {/* Overall Score */}
+                <div className="bg-white rounded-lg shadow-md p-6 mb-4">
+                  <h2 className="text-xl font-bold mb-4">Overall Score</h2>
+                  <div className="text-2xl">
+                    {`${analysis.criteriaScores.reduce((acc, criteria) => {
+                      if (criteria.criterion === 'Code Completion') {
+                        const completionScore = Math.round((analysis.functionAnalysis.completionPercentage / 100) * criteria.weight);
+                        return acc + completionScore;
+                      }
+                      return acc + (criteria.score || 0);
+                    }, 0)}/${analysis.criteriaScores.reduce((sum, item) => sum + item.weight, 0)}`}
+                  </div>
+                </div>
+
+                {/* Criteria Analysis Cards */}
+                <div className="grid grid-cols-1 gap-6">
+                  {analysis.criteriaScores.map((criteria, index) => (
+                    <div key={index} className="bg-white p-6 rounded-lg shadow-md">
+                      <div className="flex justify-between items-start mb-4">
+                        <h3 className="text-xl font-semibold">{criteria.criterion}</h3>
+                        <div className="text-2xl font-bold">
+                          {criteria.criterion === 'Code Completion' ? 
+                            `${Math.round((analysis.functionAnalysis.completionPercentage / 100) * criteria.weight)}/${criteria.weight}` :
+                            `${criteria.score}/${criteria.weight}`
+                          }
+                        </div>
+                      </div>
+                      
+                      {criteria.criterion === 'Code Completion' && (
+                        <div className="mb-4 text-sm text-gray-600">
+                          <p>Total Functions: {analysis.functionAnalysis.totalFunctions}</p>
+                          <p>Implemented Functions: {analysis.functionAnalysis.implementedFunctions}</p>
+                          <p>Completion Rate: {analysis.functionAnalysis.completionPercentage.toFixed(1)}%</p>
+                        </div>
+                      )}
+                      
+                      {criteria.justification && (
+                        <div className="mb-4">
+                          <h4 className="text-lg font-semibold mb-2">Justification</h4>
+                          <p className="text-gray-700 whitespace-pre-wrap">
+                            {criteria.justification}
+                          </p>
+                        </div>
+                      )}
+                      
+                      {criteria.recommendations && criteria.recommendations.length > 0 && (
+                        <div>
+                          <h4 className="text-lg font-semibold mb-2">Recommendations</h4>
+                          <ul className="list-disc pl-5 space-y-1">
+                            {criteria.recommendations.map((rec, idx) => (
+                              <li key={idx} className="text-gray-700">{rec}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Overall Analysis */}
+                {analysis.claudeResponse?.overallAnalysis && (
+                  <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-xl font-semibold mb-4">Overall Analysis</h3>
+                    <p className="text-gray-700 whitespace-pre-wrap">
+                      {analysis.claudeResponse.overallAnalysis}
+                    </p>
+                  </div>
+                )}
+
+                {/* Copy Report Button */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => handleCopyAnalysis(analysis)}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors flex items-center gap-2"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                    </svg>
+                    Copy Full Report
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* Copy Report Button */}
-            <div className="flex justify-end">
-              <button
-                onClick={handleCopyAnalysis}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors flex items-center gap-2"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                </svg>
-                Copy Full Report
-              </button>
-            </div>
-
-            {/* Optional: Raw Claude Response */}
-            {analysis.claudeResponse && (
-              <div className="mt-6">
-                <details className="bg-white p-4 rounded border">
-                  <summary className="font-semibold cursor-pointer">Raw Analysis Details</summary>
-                  <div className="mt-4 space-y-4">
-                    <div className="whitespace-pre-wrap text-gray-700">
-                      {analysis.claudeResponse.content}
-                    </div>
+            {fileAnalysis && (
+              <div className="space-y-6">
+                {/* File Changes */}
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <div className="p-4 bg-gray-100 rounded">
+                    <div className="text-lg font-semibold">Status</div>
+                    <div className="text-2xl">{fileAnalysis.changes?.status || 'unknown'}</div>
                   </div>
-                </details>
+                  <div className="p-4 bg-gray-100 rounded">
+                    <div className="text-lg font-semibold">Added Lines</div>
+                    <div className="text-2xl text-green-600">+{fileAnalysis.changes?.additions || 0}</div>
+                  </div>
+                  <div className="p-4 bg-gray-100 rounded">
+                    <div className="text-lg font-semibold">Removed Lines</div>
+                    <div className="text-2xl text-red-600">-{fileAnalysis.changes?.deletions || 0}</div>
+                  </div>
+                </div>
+
+                {/* Overall Score */}
+                <div className="bg-white rounded-lg shadow-md p-6 mb-4">
+                  <h2 className="text-xl font-bold mb-4">Overall Score</h2>
+                  <div className="text-2xl">
+                    {fileAnalysis?.criteriaScores ? 
+                      `${fileAnalysis.criteriaScores.reduce((acc, criteria) => {
+                        console.log('Processing criterion:', criteria);
+                        if (criteria.criterion === 'Code Completion') {
+                          const completionScore = Math.round((fileAnalysis.functionAnalysis.completionPercentage / 100) * criteria.weight);
+                          console.log('Completion score:', completionScore);
+                          return acc + completionScore;
+                        }
+                        console.log('Regular score:', criteria.score);
+                        return acc + criteria.score;
+                      }, 0)}/${rubric.reduce((sum, item) => sum + item.weight, 0)}` : 
+                      'Score pending'}
+                  </div>
+                </div>
+
+                {/* Criteria Analysis Cards */}
+                <div className="grid grid-cols-1 gap-6">
+                  {fileAnalysis.criteriaScores?.map((criteria, index) => (
+                    <div key={index} className="bg-white p-6 rounded-lg shadow-md">
+                      <div className="flex justify-between items-start mb-4">
+                        <h3 className="text-xl font-semibold">{criteria.criterion}</h3>
+                        <div className="text-2xl font-bold">
+                          {criteria.criterion === 'Code Completion' ? 
+                            `${Math.round((fileAnalysis.functionAnalysis.completionPercentage / 100) * criteria.weight)}/${criteria.weight}` :
+                            `${criteria.score}/${criteria.weight}`
+                          }
+                        </div>
+                      </div>
+                      
+                      {criteria.criterion === 'Code Completion' && (
+                        <div className="mb-4 text-sm text-gray-600">
+                          <p>Total Functions: {fileAnalysis.functionAnalysis.totalFunctions}</p>
+                          <p>Implemented Functions: {fileAnalysis.functionAnalysis.implementedFunctions}</p>
+                          <p>Completion Rate: {fileAnalysis.functionAnalysis.completionPercentage.toFixed(1)}%</p>
+                        </div>
+                      )}
+                      
+                      {criteria.justification && (
+                        <div className="mb-4">
+                          <h4 className="text-lg font-semibold mb-2">Justification</h4>
+                          <p className="text-gray-700 whitespace-pre-wrap">
+                            {criteria.justification}
+                          </p>
+                        </div>
+                      )}
+                      
+                      {criteria.recommendations && criteria.recommendations.length > 0 && (
+                        <div>
+                          <h4 className="text-lg font-semibold mb-2">Recommendations</h4>
+                          <ul className="list-disc pl-5 space-y-1">
+                            {criteria.recommendations.map((rec, idx) => (
+                              <li key={idx} className="text-gray-700">{rec}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Overall Analysis */}
+                {fileAnalysis.claudeResponse?.overallAnalysis && (
+                  <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-xl font-semibold mb-4">Overall Analysis</h3>
+                    <p className="text-gray-700 whitespace-pre-wrap">
+                      {fileAnalysis.claudeResponse.overallAnalysis}
+                    </p>
+                  </div>
+                )}
+
+                {/* File Content */}
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-4">File Content</h3>
+                  <pre className="whitespace-pre-wrap bg-gray-50 p-4 rounded">
+                    {fileAnalysis.fileContent}
+                  </pre>
+                </div>
+
+                {/* Copy Report Button */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => handleCopyAnalysis(fileAnalysis)}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors flex items-center gap-2"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                    </svg>
+                    Copy Full Report
+                  </button>
+                </div>
+
+                {/* Raw Claude Response */}
+                {fileAnalysis.claudeResponse && (
+                  <div className="mt-6">
+                    <details className="bg-white p-4 rounded border">
+                      <summary className="font-semibold cursor-pointer">Raw Analysis Details</summary>
+                      <div className="mt-4 space-y-4">
+                        <div className="whitespace-pre-wrap text-gray-700">
+                          {fileAnalysis.claudeResponse.content}
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+                )}
               </div>
             )}
           </div>
