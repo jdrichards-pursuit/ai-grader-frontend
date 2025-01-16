@@ -2,8 +2,7 @@
 
 This is the frontend for the GitHub PR Code Analyzer. It is built with React and Vite.
 
-Demo Video:
-
+**[Click here to view the demo video](https://drive.google.com/file/d/1yXZPFwK-gWWlKfNW02ANlEh-tV6foJnc/view?usp=sharing)**
 
 ## Images
 
