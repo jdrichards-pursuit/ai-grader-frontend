@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-
+import { useState } from 'react';
+import { extractRepoInfo, addRubricItem, updateRubricItem, removeRubricItem, analyzePR, handleCopyAnalysis, analyzePRFile } from '../utils/githubHelpers';
 const GitHubPRAnalyzer = () => {
   const [prUrl, setPrUrl] = useState('');
   const [rubric, setRubric] = useState([
@@ -10,173 +10,20 @@ const GitHubPRAnalyzer = () => {
   const [analysis, setAnalysis] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [parsedContent, setParsedContent] = useState(null);
   const [studentName, setStudentName] = useState('');
-  const [repoUrl, setRepoUrl] = useState('');
   const [filePath, setFilePath] = useState('');
   const [fileAnalysis, setFileAnalysis] = useState(null);
 
-  const extractRepoInfo = (prUrl) => {
-    const match = prUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
-    if (match) {
-      return {
-        owner: match[1],
-        repo: match[2]
-      };
-    }
-    return null;
-  };
+  // Use the functions with state and setters
+  const handleAddRubricItem = () => addRubricItem(rubric, setRubric);
+  
+  const handleUpdateRubricItem = (index, field, value) => updateRubricItem(rubric, setRubric, index, field, value);
 
-  const addRubricItem = () => {
-    setRubric([...rubric, { criterion: '', weight: 0, description: '' }]);
-  };
+  const handleRemoveRubricItem = (index) => removeRubricItem(rubric, setRubric, index);
 
-  const updateRubricItem = (index, field, value) => {
-    const newRubric = [...rubric];
-    newRubric[index][field] = field === 'weight' ? Number(value) : value;
-    setRubric(newRubric);
-  };
+  const handleAnalyzePR = () => analyzePR(prUrl, rubric, setLoading, setError, setAnalysis);
 
-  const removeRubricItem = (index) => {
-    setRubric(rubric.filter((_, i) => i !== index));
-  };
-
-  const analyzePR = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3003';
-      const response = await fetch(`${API_URL}/api/analysis/analyze-pr`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prUrl,
-          rubric
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to analyze PR');
-      }
-
-      const analysisData = await response.json();
-      console.log('Raw analysis data:', analysisData);
-
-      // Set the analysis data directly - no need for additional parsing
-      setAnalysis(analysisData);
-      
-      // Remove this section as it's redundant - the data is already properly structured
-      // setParsedContent({...});
-
-    } catch (err) {
-      setError(err.message);
-      console.error('Analysis error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCopyAnalysis = (data = analysis) => {
-    if (!data?.claudeResponse?.content) return;
-
-    // Format Claude's response content
-    const formattedReport = data.claudeResponse.content
-      .split('\n\n')
-      .map(section => section.trim())
-      .filter(section => section)
-      .map(section => {
-        if (section.match(/.*?\(\d+%\)/)) {
-          return section
-            .replace(/\n/g, '\n  ')
-            .replace('Justification:', '\nJustification:')
-            .replace('Recommendations:', '\nRecommendations:');
-        }
-        return section;
-      })
-      .join('\n\n');
-
-    navigator.clipboard.writeText(formattedReport)
-      .then(() => alert('Analysis copied to clipboard!'))
-      .catch(() => alert('Failed to copy analysis'));
-  };
-
-  const analyzeFile = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3003';
-      const response = await fetch(`${API_URL}/api/analysis/analyze-file`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          repoUrl,
-          filePath,
-          rubric
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to analyze file');
-      }
-
-      const analysisData = await response.json();
-      setFileAnalysis(analysisData);
-    } catch (err) {
-      setError(err.message);
-      console.error('File analysis error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const analyzePRFile = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3003';
-      console.log('Making request to:', `${API_URL}/api/analysis/analyze-pr-file`);
-      console.log('Request body:', {
-        prUrl,
-        filePath,
-        rubric
-      });
-
-      const response = await fetch(`${API_URL}/api/analysis/analyze-pr-file`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prUrl,
-          filePath,
-          rubric
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to analyze PR file');
-      }
-
-      const analysisData = await response.json();
-      console.log('Response from backend:', analysisData);
-      setFileAnalysis(analysisData);
-    } catch (err) {
-      setError(err.message);
-      console.error('PR file analysis error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handleAnalyzePRFile = () => analyzePRFile(prUrl, filePath, rubric, setLoading, setError, setFileAnalysis);
 
   return (
     <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
@@ -192,26 +39,26 @@ const GitHubPRAnalyzer = () => {
               <input
                 type="text"
                 value={item.criterion}
-                onChange={(e) => updateRubricItem(index, 'criterion', e.target.value)}
+                onChange={(e) => handleUpdateRubricItem(index, 'criterion', e.target.value)}
                 placeholder="Criterion"
                 className="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <input
                 type="number"
                 value={item.weight}
-                onChange={(e) => updateRubricItem(index, 'weight', e.target.value)}
+                onChange={(e) => handleUpdateRubricItem(index, 'weight', e.target.value)}
                 placeholder="Weight %"
                 className="w-24 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <input
                 type="text"
                 value={item.description}
-                onChange={(e) => updateRubricItem(index, 'description', e.target.value)}
+                onChange={(e) => handleUpdateRubricItem(index, 'description', e.target.value)}
                 placeholder="Description"
                 className="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <button
-                onClick={() => removeRubricItem(index)}
+                onClick={() => handleRemoveRubricItem(index)}
                 className="px-3 py-2 text-red-500 hover:text-red-700"
               >
                 ×
@@ -219,7 +66,7 @@ const GitHubPRAnalyzer = () => {
             </div>
           ))}
           <button
-            onClick={addRubricItem}
+            onClick={handleAddRubricItem}
             className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
           >
             Add Criterion
@@ -246,7 +93,7 @@ const GitHubPRAnalyzer = () => {
             className="flex-1 px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
-            onClick={analyzePR}
+            onClick={handleAnalyzePR}
             disabled={loading}
             className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400 transition-colors"
           >
@@ -263,7 +110,7 @@ const GitHubPRAnalyzer = () => {
             className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
-            onClick={analyzePRFile}
+            onClick={handleAnalyzePRFile}
             disabled={loading || !prUrl || !filePath}
             className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-400 transition-colors"
           >
