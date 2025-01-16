@@ -8,9 +8,10 @@ Demo Video:
 ## Images
 
 <img src="./assets/rubric.png" alt="Rubric" width="500"/>
-<img src="./assets/score.png" alt="Score" width="500"/>
-<img src="./assets/score2.png" alt="Score" width="500"/>
+<img src="./assets/scores.png" alt="Score" width="500"/>
+<img src="./assets/scores2.png" alt="Score" width="500"/>
 <img src="./assets/file.png" alt="File" width="500"/>
+
 ## Features
 
 - Create and customize grading rubrics with weights and descriptions
