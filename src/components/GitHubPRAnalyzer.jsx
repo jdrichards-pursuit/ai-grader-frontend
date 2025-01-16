@@ -28,7 +28,7 @@ const GitHubPRAnalyzer = () => {
   return (
     <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-4">Acclelerator Track One Grader</h1>
+        <h1 className="text-2xl font-bold mb-4"> Pull Request Grader</h1>
       </div>
 
       <div className="space-y-6">
